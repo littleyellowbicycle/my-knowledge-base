@@ -56,17 +56,15 @@ class TestComputeRelations:
         assert hit[0].score >= 6
 
     def test_title_token_overlap(self, tmp_kb: Path, note_in: Path):
-        """标题分词重合 (Agent) → +1 分，标签无重合 → 总分 1，低于阈值 → 不命中。"""
+        """标签无重合、标题分词重合最多 1 个 → 总分 < 阈值 → 不命中。"""
         proc = tmp_kb / "my_kb" / "processed"
         make_note(proc, "other", "Agent 框架对比", ["框架"])
         hits = compute_relations(note_in)
-        # Agent 是英文词, 在 new_title_tokens 中应为 lower "agent"
-        # 但也可能在 jieba 分词后被切分
+        # 标签: [AI,Agent,架构] ∩ [框架] = 0 → 0 分
+        # 标题: "AI Agent 架构" ∩ "Agent 框架对比" → 最多重合 1 词 → +1 分
+        # 总分 0-1 < 阈值 4 → 不应命中
         hit = [h for h in hits if h.filename == "other.md"]
-        if hit:
-            # 标签: [AI,Agent,架构] ∩ [框架] = 0 → 0 分
-            # 标题: 可能重合 0-1 个词 → 0-1 分，小于阈值
-            assert hit[0].score < 4
+        assert hit == [], f"不应命中，但得到 score={hit[0].score}" if hit else ""
 
     def test_no_other_notes(self, tmp_kb: Path, note_in: Path):
         """无老笔记时结果为空列表。"""

@@ -3,7 +3,7 @@
 命令清单:
     kb ingest -u <url>              抓取链接并落盘 raw/
     kb ingest -t "<text>"           手动输入落盘 raw/
-    kb ingest -                     从 stdin 读取手动输入
+    kb ingest --stdin               从 stdin 读取 (管道时自动检测)
     kb process [--all|--raw <id>]   加工原料为 Obsidian 笔记 (含关联引擎钩子)
     kb index                        全量重建索引层
     kb qa "<question>"              问答流 (查索引->读结论->作答)

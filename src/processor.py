@@ -29,7 +29,7 @@ from typing import Callable, Optional
 import frontmatter
 
 from src.config import settings
-from src.llm_adapter import llm
+from src.llm_adapter import llm, LLMError
 from src.raw_store import load_raw, mark_status, iter_pending
 from src.schemas import ProcessedNote, RawStatus
 from src import relations as _relations  # 关联引擎钩子 (Step 3)
@@ -164,9 +164,11 @@ def process_note(
         hook(out_path)
     except Exception as e:  # noqa: BLE001
         logger.warning("on_processed 钩子失败: %s", e)
-        # 钩子失败 → 原料保持 pending，用户可下次重新加工
+        # 清理孤儿笔记，避免重试时产生重复文件并污染关联打分
+        out_path.unlink(missing_ok=True)
+        # 原料保持 pending，用户可下次重新加工
         mark_status(raw_id, RawStatus.PENDING)
-        return out_path
+        raise LLMError(f"加工钩子失败，已回滚: {e}") from e
 
     mark_status(raw_id, RawStatus.PROCESSED)
     return out_path

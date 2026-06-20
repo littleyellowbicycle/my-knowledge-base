@@ -256,7 +256,7 @@ def _save_wiki(topic: str, content: str, source_stems: list[str]) -> Path:
 
     today = _dt.date.today().isoformat()
     post = frontmatter.Post(
-        body=content,
+        content=content,
         title=f"{fname} (Wiki 综述)",
         type="wiki",
         topic=topic,
