@@ -307,8 +307,8 @@ rebuild_index() → void                       # 全量重建索引
 rebuild_wiki() → void                        # 全量重新编译
 on_processed_updated(note) → void            # B2 变更回调 → 触发 B4 增量编译
 qa(question) → Answer + sources              # Index + Processed + Wiki → Answer
-suggest_topics(topic?) → TopicList           # Index → TopicList
-weekly_report() → Markdown                   # 全层审计 → Report
+suggest_topics(topic?) → TopicList           # Index → TopicList (🔜 V2)
+weekly_report() → Markdown                   # 全层审计 → Report (🔜 V2)
 ```
 
 ---
@@ -351,7 +351,7 @@ weekly_report() → Markdown                   # 全层审计 → Report
 索引	JSON 文件 (含 links.json)	+ 增量更新	向量库 + 图数据库
 Wiki 编译 ⭐	llmwiki + 胶水层 (手动触发)	+ 增量自动编译	+ 多页合并 + 概念图谱
 关联	确定性加权打分	+ LLM 辅助补全	向量语义关联
-输出	问答 + 选题	+ 周报(定时)	+ 知识图谱可视化
+输出	问答流 (C1)	+ 选题流 (C2) + 周报 (C3)	+ 知识图谱可视化
 前端	CLI + Obsidian(挂载 processed/+wiki/)	同左	Web UI
 ---
 

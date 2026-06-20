@@ -49,8 +49,11 @@ _LINK_RE = re.compile(r"\[\[([^\]]+?)\]\]")
 
 # ---------- 关联簇检测 ----------
 def _build_graph(links: dict[str, dict[str, list[str]]]) -> dict[str, set[str]]:
-    """从 links.json 构建无向图 (stem -> 邻接 stem 集合)。"""
+    """从 links.json 构建无向图 (stem -> 邻接 stem 集合)。含孤立节点。"""
     g: dict[str, set[str]] = defaultdict(set)
+    # 确保所有节点入图 (含孤立)
+    for stem in links:
+        g.setdefault(stem, set())
     for stem, dirs in links.items():
         for other in dirs.get("outgoing", []):
             g[stem].add(other)
@@ -194,7 +197,10 @@ def _compile_via_llm(notes: list[dict], topic: str) -> str:
 
 # ---------- 后处理: 确定性双链覆盖 ----------
 def _known_stems() -> set[str]:
-    return {p.stem for p in settings.PROCESSED_DIR.glob("*.md")}
+    """返回所有已知笔记/综述的 stem 集合 (processed/ + wiki/)。"""
+    stems = {p.stem for p in settings.PROCESSED_DIR.glob("*.md")}
+    stems.update(p.stem for p in settings.WIKI_DIR.glob("*.md"))
+    return stems
 
 
 def _post_process_wiki(content: str, cluster_stems: list[str]) -> str:

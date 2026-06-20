@@ -52,12 +52,12 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         _emit(f"已抓取并归档: {entry.id} (source={entry.source_url})")
         return 0
     # 手动输入
-    if args.text is not None:
-        text = args.text
-    elif args.stdin:
+    if args.stdin or (not sys.stdin.isatty() and args.text is None):
         text = sys.stdin.read()
+    elif args.text is not None:
+        text = args.text
     else:
-        _emit("错误: 需要提供 --url 或 --text 或 - (stdin)", file=sys.stderr)
+        _emit("错误: 需要提供 --url 或 --text 或 --stdin", file=sys.stderr)
         return 2
     if not text or not text.strip():
         _emit("错误: 输入内容为空", file=sys.stderr)
@@ -161,7 +161,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("ingest", help="录入原料 (链接抓取 / 手动输入)")
     p.add_argument("-u", "--url", help="目标 URL (自动路由抓取)")
     p.add_argument("-t", "--text", help="手动输入文本")
-    p.add_argument("-", dest="stdin", action="store_true", help="从 stdin 读取")
+    p.add_argument("--stdin", action="store_true", help="从 stdin 读取 (管道时自动检测)")
     p.set_defaults(func=cmd_ingest)
 
     # process

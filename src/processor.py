@@ -94,7 +94,7 @@ def _assemble_markdown(note: ProcessedNote, raw_id: str,
                        source_url: Optional[str], today: str) -> str:
     """按架构 V2.1 标准结构拼装最终 .md 文本。"""
     post = frontmatter.Post(
-        body=_body_with_sections(note),
+        content=_body_with_sections(note),
         title=note.title,
         source=raw_id,
         source_url=source_url or "",
@@ -157,16 +157,18 @@ def process_note(
     out_path.write_text(content, encoding="utf-8")
     logger.info("加工完成 -> %s", out_path.name)
 
-    # 推进原料状态
-    mark_status(raw_id, RawStatus.PROCESSED)
-
     # 触发关联引擎钩子 (默认调用 Step 3 的 compute_and_apply)
+    # 先运行钩子，成功后推进原料状态，避免原料标记 processed 但关联缺失
     hook = on_processed if on_processed is not None else _relations.compute_and_apply
     try:
         hook(out_path)
-    except Exception as e:  # noqa: BLE001 - 钩子失败不应阻断主流程
+    except Exception as e:  # noqa: BLE001
         logger.warning("on_processed 钩子失败: %s", e)
+        # 钩子失败 → 原料保持 pending，用户可下次重新加工
+        mark_status(raw_id, RawStatus.PENDING)
+        return out_path
 
+    mark_status(raw_id, RawStatus.PROCESSED)
     return out_path
 
 
