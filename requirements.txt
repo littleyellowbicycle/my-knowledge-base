@@ -1,0 +1,18 @@
+# ===== LLM 适配与加工引擎 =====
+litellm>=1.40.0
+pydantic>=2.6.0
+
+# ===== 输入网关 (多平台路由) =====
+crawl4ai>=0.3.0
+requests>=2.31.0
+
+# ===== 关联算法与索引层 =====
+jieba>=0.42.1
+python-frontmatter>=1.1.0
+
+# ===== 配置管理 =====
+python-dotenv>=1.0.0
+
+# ===== 后续 Webhook / API 推送 (Step V2) =====
+# fastapi>=0.110.0
+# uvicorn>=0.27.0

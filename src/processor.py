@@ -1,0 +1,191 @@
+"""加工引擎 (模块 B2) - LLM JSON Mode 结构化产出。
+
+职责:
+    将原料层纯文本通过 LLM 加工为带 Frontmatter 的标准 Obsidian 笔记，
+    落盘到 processed/ 目录。
+
+流程 (对应 Implementation_plan Step 2):
+    1. 读取 raw 原文
+    2. 构造加工 Prompt (要求 2-3 句核心结论 + 含 [[]] 双链的正文 + 标签)
+    3. 调用 llm.chat_json(schema=ProcessedNote) 强类型校验
+    4. 用 python-frontmatter 拼装 .md
+    5. 写入 processed/
+    6. 标记原料状态为 processed
+    7. 触发关联引擎钩子 (Step 3 提供，本模块只回调不感知)
+
+对外暴露:
+    process_note(raw_id)                 -> Path   加工单篇原料
+    process_pending(on_processed=...)    -> list[Path]  批量加工所有 pending 原料
+"""
+
+from __future__ import annotations
+
+import datetime as _dt
+import logging
+import re
+from pathlib import Path
+from typing import Callable, Optional
+
+import frontmatter
+
+from src.config import settings
+from src.llm_adapter import llm
+from src.raw_store import load_raw, mark_status, iter_pending
+from src.schemas import ProcessedNote, RawStatus
+from src import relations as _relations  # 关联引擎钩子 (Step 3)
+
+logger = logging.getLogger(__name__)
+
+# 加工完成的笔记默认状态字符串
+NOTE_STATUS_PROCESSED = "processed"
+
+# 关联引擎钩子签名: on_processed(note_path: Path) -> None
+OnProcessedHook = Callable[[Path], None]
+
+
+# ---------- Prompt 构造 ----------
+_PROCESS_SYSTEM = (
+    "你是一名知识管理编辑。把用户提供的原始材料加工成一篇结构化 Obsidian 笔记。"
+    "要求: 1) 核心结论 2-3 句话，直击要害；"
+    "2) 正文用中文重写，逻辑清晰，必须在关键概念处使用 [[双链]] 标记；"
+    "3) 标签 3-6 个，覆盖主题与领域；"
+    "4) title 简洁有信息量，不带书名号/引号。"
+)
+
+
+def _build_prompt(raw_text: str, source_url: Optional[str]) -> str:
+    src_line = f"\n原始来源链接: {source_url}" if source_url else ""
+    return (
+        "请把以下原始材料加工为一篇结构化笔记。严格按 JSON Schema 输出。\n"
+        f"{src_line}\n\n"
+        "===== 原始材料 =====\n"
+        f"{raw_text}\n"
+        "===== 原始材料结束 =====\n"
+    )
+
+
+# ---------- 文件名安全化 ----------
+_INVALID_FS_CHARS = re.compile(r'[\\/:*?"<>|\n\r\t]')
+
+
+def _safe_filename(title: str) -> str:
+    """把标题转为安全的文件名 (保留中文，去非法字符)。"""
+    name = _INVALID_FS_CHARS.sub(" ", title).strip()
+    name = re.sub(r"\s+", " ", name)
+    if not name:
+        name = "未命名笔记"
+    # Windows 文件名长度上限留余量
+    return name[:80]
+
+
+def _unique_path(title: str) -> Path:
+    """在 processed/ 下生成不冲突的文件路径。"""
+    base = _safe_filename(title)
+    candidate = settings.PROCESSED_DIR / f"{base}.md"
+    i = 2
+    while candidate.exists():
+        candidate = settings.PROCESSED_DIR / f"{base} ({i}).md"
+        i += 1
+    return candidate
+
+
+# ---------- Markdown 拼装 ----------
+def _assemble_markdown(note: ProcessedNote, raw_id: str,
+                       source_url: Optional[str], today: str) -> str:
+    """按架构 V2.1 标准结构拼装最终 .md 文本。"""
+    post = frontmatter.Post(
+        body=_body_with_sections(note),
+        title=note.title,
+        source=raw_id,
+        source_url=source_url or "",
+        created=today,
+        updated=today,
+        tags=note.tags,
+        status=NOTE_STATUS_PROCESSED,
+        related=note.related,
+    )
+    return frontmatter.dumps(post, sort_keys=False)
+
+
+def _body_with_sections(note: ProcessedNote) -> str:
+    """拼装正文: 标题 + 核心结论 + 详细内容 + 相关笔记(占位，关联引擎覆写)。"""
+    conclusion = note.conclusion.strip()
+    if not conclusion.startswith(">"):
+        conclusion = "> " + conclusion.replace("\n", "\n> ")
+    related_lines = "\n".join(f"- [[{r}]]" for r in note.related) or "- (待关联引擎填充)"
+    return (
+        f"# {note.title}\n\n"
+        f"## 核心结论\n{conclusion}\n\n"
+        f"## 详细内容\n{note.body_markdown.strip()}\n\n"
+        f"## 相关笔记\n{related_lines}\n"
+    )
+
+
+# ---------- 主流程 ----------
+def process_note(
+    raw_id: str,
+    *,
+    on_processed: Optional[OnProcessedHook] = None,
+    model: Optional[str] = None,
+) -> Path:
+    """加工单篇原料为 Obsidian 笔记，返回笔记路径。
+
+    Args:
+        raw_id: 原料层 ID
+        on_processed: 加工完成后的钩子；None 则默认调用关联引擎 compute_and_apply
+        model: 指定 LLM 模型；None 用 settings.MODEL_PROCESS
+    """
+    entry = load_raw(raw_id)
+    if entry.original_text.strip() == "":
+        raise ValueError(f"原料原文为空: {raw_id}")
+
+    prompt = _build_prompt(entry.original_text, entry.source_url)
+    logger.info("开始加工 %s (模型=%s)", raw_id, model or settings.MODEL_PROCESS)
+
+    note = llm.chat_json(
+        prompt,
+        schema=ProcessedNote,
+        system=_PROCESS_SYSTEM,
+        model=model or settings.MODEL_PROCESS,
+    )
+
+    today = _dt.date.today().isoformat()
+    content = _assemble_markdown(note, raw_id, entry.source_url, today)
+
+    out_path = _unique_path(note.title)
+    settings.ensure_dirs()
+    out_path.write_text(content, encoding="utf-8")
+    logger.info("加工完成 -> %s", out_path.name)
+
+    # 推进原料状态
+    mark_status(raw_id, RawStatus.PROCESSED)
+
+    # 触发关联引擎钩子 (默认调用 Step 3 的 compute_and_apply)
+    hook = on_processed if on_processed is not None else _relations.compute_and_apply
+    try:
+        hook(out_path)
+    except Exception as e:  # noqa: BLE001 - 钩子失败不应阻断主流程
+        logger.warning("on_processed 钩子失败: %s", e)
+
+    return out_path
+
+
+def process_pending(
+    *,
+    on_processed: Optional[OnProcessedHook] = None,
+    model: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> list[Path]:
+    """批量加工所有 pending 状态的原料，返回成功生成的笔记路径列表。"""
+    ids = iter_pending()
+    if limit:
+        ids = ids[:limit]
+    results: list[Path] = []
+    for rid in ids:
+        try:
+            results.append(
+                process_note(rid, on_processed=on_processed, model=model)
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error("加工 %s 失败: %s", rid, e)
+    return results
