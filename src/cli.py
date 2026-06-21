@@ -9,6 +9,7 @@
     kb qa "<question>"              问答流 (查索引->读结论->作答)
     kb wiki [--all|--topic <tag>]   Wiki 编译 (关联簇 >= 3)
     kb wiki --lint                  Wiki 健康自检
+    kb serve [--host] [--port]      启动 FastAPI 服务 (供 Obsidian 侧边栏)
     kb list [raw|processed|wiki]    列出条目
     kb stats                        显示各层统计
 
@@ -148,6 +149,18 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    """启动 FastAPI 服务 (供 Obsidian 侧边栏聊天插件使用)。"""
+    from src.api_server import run_server
+    _emit(f"启动 API 服务: http://{args.host}:{args.port}")
+    _emit("供 Obsidian Copilot/Smart Connections 使用的端点:")
+    _emit(f"  POST {args.host}:{args.port}/v1/chat/completions  (OpenAI 兼容)")
+    _emit(f"  POST {args.host}:{args.port}/qa                   (原生问答)")
+    _emit("按 Ctrl+C 停止。")
+    run_server(host=args.host, port=args.port)
+    return 0
+
+
 # ---------- 解析器构建 ----------
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -199,6 +212,12 @@ def build_parser() -> argparse.ArgumentParser:
     # stats
     p = sub.add_parser("stats", help="各层统计")
     p.set_defaults(func=cmd_stats)
+
+    # serve
+    p = sub.add_parser("serve", help="启动 FastAPI 服务 (供 Obsidian 侧边栏)")
+    p.add_argument("--host", default="127.0.0.1", help="监听地址 (默认 127.0.0.1)")
+    p.add_argument("--port", type=int, default=8000, help="端口 (默认 8000)")
+    p.set_defaults(func=cmd_serve)
 
     return parser
 

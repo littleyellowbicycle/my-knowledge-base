@@ -1,0 +1,12 @@
+{
+  "attachmentFolderPath": "raw/attachments",
+  "newFileFolderPath": "inbox",
+  "newFileLocation": "folder",
+  "alwaysUpdateLinks": true,
+  "useMarkdownLinks": false,
+  "showUnsupportedFiles": false,
+  "showInlineTitle": true,
+  "showLineNumber": false,
+  "strictLineBreaks": false,
+  "rightToLeft": false
+}
