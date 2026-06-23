@@ -164,11 +164,29 @@ API 服务启动后，在 Copilot 插件中将 Base URL 设为 `http://localhost
 
 ### MCP 对接（AI Agent 调用）
 
+MCP（Model Context Protocol）是 Anthropic 推出的开放协议，让 AI Agent 通过标准接口直接操作你的知识库。
+
 ```bash
 python kb.py mcp
 ```
 
-供 Claude Desktop、Cursor 等 MCP 客户端通过 stdio 协议调用知识库工具。在客户端的 MCP 配置文件中添加：
+#### 可用工具
+
+| 工具 | 作用 |
+|------|------|
+| `ask(question)` | 两步走问答（Wiki 优先 → 降级 Processed），返回带 `[[]]` 来源的回答 |
+| `ingest_url(url)` | 抓取 URL 并归档到原料层 |
+| `ingest_text(text)` | 手动录入文本到原料层 |
+| `process_pending()` | 批量加工所有 pending 原料为结构化笔记 |
+| `compile_wiki(topic?)` | 编译 Wiki 综述（全量或按主题单簇） |
+| `rebuild_index()` | 重建索引层（新增笔记后必调） |
+| `stats()` | 各层条目统计 |
+
+Agent 调用知识库时，典型工作流为：`ingest_url` → `process_pending` → `rebuild_index` → `ask`。
+
+#### Claude Desktop
+
+编辑 `claude_desktop_config.json`（Settings → Developer → Edit Config）：
 
 ```json
 {
@@ -181,7 +199,37 @@ python kb.py mcp
 }
 ```
 
-可用工具：`ingest_url` / `ingest_text` / `process_pending` / `ask` / `compile_wiki` / `rebuild_index` / `stats`。
+重启后，Claude 对话中会出现工具列表，它会自主判断何时调用（如用户提问时调用 `ask`、给链接时调用 `ingest_url`）。
+
+#### Cursor
+
+`Cursor Settings → Features → MCP Servers → Add new MCP server`：
+
+| 字段 | 值 |
+|------|-----|
+| Name | `my-knowledge-base` |
+| Type | `command` |
+| Command | `python` |
+| Args | `D:\project\my-konwledge-base\kb.py mcp` |
+
+#### Opencode
+
+在项目根目录创建或编辑 `opencode.json`：
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "my-knowledge-base": {
+      "type": "local",
+      "command": ["python", "D:\\project\\my-konwledge-base\\kb.py", "mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+重启 Opencode 后生效，当前对话即可调用知识库工具。
 
 ---
 

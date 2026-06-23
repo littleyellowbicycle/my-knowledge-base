@@ -1,10 +1,13 @@
 # Obsidian 工作区缓存 (每次打开会变, 不入库)
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
-.obsidian/plugins/*/data.json
+.obsidian/plugins/*/
 
 # 原料层附件
 raw/attachments/
+
+# 插件运行时数据 (每次打开会变)
+copilot/
 
 # inbox 临时笔记 (保留模板)
 inbox/*.md
