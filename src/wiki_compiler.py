@@ -64,17 +64,27 @@ def _build_graph(links: dict[str, dict[str, list[str]]]) -> dict[str, set[str]]:
     return g
 
 
+def _wiki_stems() -> set[str]:
+    """返回所有已存在 wiki 综述页的 stem 集合 (用于簇检测时排除)。"""
+    summaries = load_summaries()
+    return {Path(f).stem for f, s in summaries.items() if s.get("type") == "wiki"}
+
+
 def find_clusters(min_size: Optional[int] = None) -> list[list[str]]:
-    """找出所有连通分量，返回节点数 >= min_size 的簇 (stem 列表)。"""
+    """找出所有连通分量，返回节点数 >= min_size 的簇 (stem 列表)。
+
+    簇检测仅基于加工层笔记，排除 wiki 综述节点，避免重复编译。
+    """
     min_size = settings.WIKI_CLUSTER_MIN_NOTES if min_size is None else min_size
     links = load_links()
     if not links:
         return []
+    wiki_stems = _wiki_stems()
     g = _build_graph(links)
     visited: set[str] = set()
     clusters: list[list[str]] = []
     for start in links.keys():
-        if start in visited:
+        if start in wiki_stems or start in visited:
             continue
         # BFS
         comp: list[str] = []
@@ -84,9 +94,10 @@ def find_clusters(min_size: Optional[int] = None) -> list[list[str]]:
             node = q.popleft()
             comp.append(node)
             for nxt in g.get(node, set()):
-                if nxt not in visited:
-                    visited.add(nxt)
-                    q.append(nxt)
+                if nxt in wiki_stems or nxt in visited:
+                    continue
+                visited.add(nxt)
+                q.append(nxt)
         if len(comp) >= min_size:
             clusters.append(sorted(comp))
     clusters.sort(key=lambda c: (-len(c), c[0]))
@@ -167,7 +178,7 @@ _COMPILE_SYSTEM = (
     "1) 开头 2-3 句概述该主题知识体系;\n"
     "2) 按子主题分章节 (## 二级标题) 综合多篇笔记，不要简单拼接;\n"
     "3) 在关键概念处使用 [[]] 双链标记 (目标必须是已有笔记的 stem);\n"
-    "4) 末尾用 '## 来源笔记' 列出参与编译的所有笔记 [[]] 链接;\n"
+    "4) 末尾用 '## 相关笔记' 列出参与编译的所有笔记 [[]] 链接;\n"
     "5) 全程中文，逻辑严密，消除笔记间的断裂与重复。"
 )
 
@@ -327,19 +338,39 @@ def compile_wiki(
     return out_path
 
 
+def _existing_wiki_sources() -> set[frozenset[str]]:
+    """返回已存在 wiki 综述的 source_notes 集合 (用于去重，避免重复编译)。"""
+    sources: set[frozenset[str]] = set()
+    for p in settings.WIKI_DIR.glob("*.md"):
+        try:
+            post = frontmatter.loads(p.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        sn = post.metadata.get("source_notes")
+        if sn:
+            sources.add(frozenset(sn))
+    return sources
+
+
 def compile_all_wiki(*, force_llm: bool = False) -> list[Path]:
-    """扫描所有达标关联簇，逐个编译。"""
+    """扫描所有达标关联簇，逐个编译 (跳过已有对应 wiki 的簇)。"""
     clusters = find_clusters()
     if not clusters:
         logger.info("未发现 >= %d 节点的关联簇，无需编译",
                     settings.WIKI_CLUSTER_MIN_NOTES)
         return []
+    existing = _existing_wiki_sources()
     results: list[Path] = []
     for stems in clusters:
+        stem_set = frozenset(stems)
+        if stem_set in existing:
+            logger.info("簇 %s 已有对应 wiki 综述，跳过", stems)
+            continue
         try:
             p = compile_wiki(stems=stems, force_llm=force_llm)
             if p:
                 results.append(p)
+                existing.add(stem_set)
         except Exception as e:  # noqa: BLE001
             logger.error("编译簇失败 %s: %s", stems, e)
     return results

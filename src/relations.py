@@ -203,3 +203,32 @@ def compute_and_apply(new_note_path: Path) -> None:
         names = ", ".join(f"{h.filename}({h.score})" for h in hits)
         logger.info("关联命中: %s", names)
     apply_relations(new_note_path, hits)
+
+
+def remove_note_relations(note_stem: str) -> int:
+    """从所有加工层笔记中移除指向 note_stem 的关联 (related 字段 + [[]] 双链)。
+
+    用于 process_note 回滚时清理老笔记中可能已写入的悬空双链。
+    返回被修改的笔记数。
+    """
+    changed = 0
+    for p in settings.PROCESSED_DIR.glob("*.md"):
+        if p.stem == note_stem:
+            continue
+        try:
+            post = _load_note(p)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("清理关联时解析失败 %s: %s", p.name, e)
+            continue
+        related: list[str] = list(post.metadata.get("related", []) or [])
+        if note_stem not in related:
+            continue
+        new_related = [r for r in related if r != note_stem]
+        post.metadata["related"] = new_related
+        post.metadata["updated"] = _dt.date.today().isoformat()
+        post.content = _rewrite_related_section(post.content, new_related)
+        p.write_text(frontmatter.dumps(post, sort_keys=False), encoding="utf-8")
+        changed += 1
+    if changed:
+        logger.info("回滚清理: 从 %d 篇笔记移除了指向 %s 的关联", changed, note_stem)
+    return changed

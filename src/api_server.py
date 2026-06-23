@@ -18,9 +18,10 @@
 
 from __future__ import annotations
 
+import json as _json
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Generator, Optional
 
 from pydantic import BaseModel, Field
 
@@ -32,12 +33,13 @@ logger = logging.getLogger(__name__)
 # 懒导入 FastAPI (仅 serve 命令需要)
 try:
     from fastapi import FastAPI, HTTPException
-    from fastapi.responses import JSONResponse
+    from fastapi.responses import JSONResponse, StreamingResponse
     _HAS_FASTAPI = True
 except ImportError:
     FastAPI = None  # type: ignore
     HTTPException = Exception  # type: ignore
     JSONResponse = dict  # type: ignore
+    StreamingResponse = None  # type: ignore
     _HAS_FASTAPI = False
 
 
@@ -91,6 +93,34 @@ class ChatCompletionResponse(BaseModel):
     choices: list[dict[str, Any]] = Field(default_factory=list)
 
 
+def _stream_chat_chunks(answer: str) -> Generator[str, None, None]:
+    """将完整回答按块生成 OpenAI SSE 流式格式 (chat.completion.chunk)。"""
+    chunk_size = 20
+    for i in range(0, len(answer), chunk_size):
+        piece = answer[i:i + chunk_size]
+        data = {
+            "id": "kb_chat",
+            "object": "chat.completion.chunk",
+            "choices": [{
+                "index": 0,
+                "delta": {"content": piece},
+                "finish_reason": None,
+            }],
+        }
+        yield f"data: {_json.dumps(data, ensure_ascii=False)}\n\n"
+    done = {
+        "id": "kb_chat",
+        "object": "chat.completion.chunk",
+        "choices": [{
+            "index": 0,
+            "delta": {},
+            "finish_reason": "stop",
+        }],
+    }
+    yield f"data: {_json.dumps(done, ensure_ascii=False)}\n\n"
+    yield "data: [DONE]\n\n"
+
+
 # ---------- 应用工厂 ----------
 def create_app() -> "FastAPI":
     if not _HAS_FASTAPI:
@@ -126,12 +156,12 @@ def create_app() -> "FastAPI":
             raise HTTPException(status_code=500, detail=str(e))
 
     # ---- OpenAI 兼容接口 (供 Copilot / Smart Connections 使用) ----
-    @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
+    @app.post("/v1/chat/completions")
     def chat_completions(req: ChatCompletionRequest):
         """将 OpenAI Chat Completions 格式转为知识库问答。
 
         取 messages 中最后一条 user 消息作为问题，调用 qa_engine，
-        返回 OpenAI 兼容格式。
+        返回 OpenAI 兼容格式。支持 stream=true 返回 SSE 流式响应。
         """
         # 提取最后一条 user 消息
         user_messages = [m for m in req.messages if m.role == "user"]
@@ -143,6 +173,12 @@ def create_app() -> "FastAPI":
             answer = qa_engine.qa(question, auto_rebuild=True)
         except Exception as e:
             answer = f"知识库问答出错: {e}"
+
+        if req.stream:
+            return StreamingResponse(
+                _stream_chat_chunks(answer),
+                media_type="text/event-stream",
+            )
 
         return ChatCompletionResponse(
             id="kb_chat",
@@ -198,11 +234,17 @@ def create_app() -> "FastAPI":
 
     # ---- Wiki 编译 ----
     @app.post("/wiki")
-    def compile_wiki(all_clusters: bool = True):
+    def compile_wiki(all_clusters: bool = True, topic: Optional[str] = None):
         if all_clusters:
             paths = wiki_compiler.compile_all_wiki()
+        elif topic:
+            p = wiki_compiler.compile_wiki(topic)
+            paths = [p] if p else []
         else:
-            paths = []
+            raise HTTPException(
+                status_code=400,
+                detail="需要 all_clusters=true 或提供 topic 参数",
+            )
         return {"compiled": [p.name for p in paths]}
 
     # ---- 统计 ----

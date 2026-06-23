@@ -138,6 +138,11 @@ def process_note(
     entry = load_raw(raw_id)
     if entry.original_text.strip() == "":
         raise ValueError(f"原料原文为空: {raw_id}")
+    if entry.status == RawStatus.PROCESSED:
+        raise ValueError(
+            f"原料 {raw_id} 已加工，重复加工会产生重复笔记。"
+            f"如需重新加工请先删除对应 processed 笔记并重置原料状态为 pending"
+        )
 
     prompt = _build_prompt(entry.original_text, entry.source_url)
     logger.info("开始加工 %s (模型=%s)", raw_id, model or settings.MODEL_PROCESS)
@@ -166,6 +171,11 @@ def process_note(
         logger.warning("on_processed 钩子失败: %s", e)
         # 清理孤儿笔记，避免重试时产生重复文件并污染关联打分
         out_path.unlink(missing_ok=True)
+        # 清理老笔记中可能已写入的悬空双链 (关联引擎部分成功时的残留)
+        try:
+            _relations.remove_note_relations(out_path.stem)
+        except Exception as cleanup_err:  # noqa: BLE001
+            logger.warning("清理悬空关联失败: %s", cleanup_err)
         # 原料保持 pending，用户可下次重新加工
         mark_status(raw_id, RawStatus.PENDING)
         raise LLMError(f"加工钩子失败，已回滚: {e}") from e
