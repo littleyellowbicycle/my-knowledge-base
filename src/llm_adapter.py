@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Type, TypeVar
 
 import litellm
@@ -26,6 +27,11 @@ from src.config import settings
 # LiteLLM 全局日志级别
 litellm.set_verbose = False
 logging.getLogger("litellm").setLevel(settings.LITELLM_LOG)
+
+# 自定义 API Base (用于 OpenAI 兼容的非标准端点，如 MiniMax M3)
+_API_BASE = os.getenv("LITELLM_API_BASE")
+if _API_BASE:
+    litellm.api_base = _API_BASE
 
 T = TypeVar("T", bound=BaseModel)
 
