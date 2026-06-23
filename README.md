@@ -6,6 +6,7 @@
 
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![MCP](https://img.shields.io/badge/MCP-6E56CF?logo=anthropic&logoColor=white)
 ![LiteLLM](https://img.shields.io/badge/LiteLLM-4F4F8F?logo=litellm&logoColor=white)
 ![Pydantic](https://img.shields.io/badge/Pydantic-E9209E?logo=pydantic&logoColor=white)
 ![License-MIT](https://img.shields.io/badge/License-MIT-green.svg)
@@ -151,6 +152,7 @@ python kb.py qa "你的问题"
 | `kb qa QUESTION`     | 基于知识库问答                 |
 | `kb wiki`            | 编译 Wiki 综述               |
 | `kb serve`           | 启动 API 服务（供 Obsidian 对接） |
+| `kb mcp`             | 启动 MCP 服务（stdio，供 AI Agent 调用） |
 
 ### Obsidian 对接
 
@@ -159,6 +161,27 @@ python kb.py qa "你的问题"
 API 服务启动后，在 Copilot 插件中将 Base URL 设为 `http://localhost:8000`，即可使用知识库问答。
 
 详细配置见 [`docs/ob-plugin.md`](docs/ob-plugin.md)。
+
+### MCP 对接（AI Agent 调用）
+
+```bash
+python kb.py mcp
+```
+
+供 Claude Desktop、Cursor 等 MCP 客户端通过 stdio 协议调用知识库工具。在客户端的 MCP 配置文件中添加：
+
+```json
+{
+  "mcpServers": {
+    "my-knowledge-base": {
+      "command": "python",
+      "args": ["D:\\project\\my-konwledge-base\\kb.py", "mcp"]
+    }
+  }
+}
+```
+
+可用工具：`ingest_url` / `ingest_text` / `process_pending` / `ask` / `compile_wiki` / `rebuild_index` / `stats`。
 
 ---
 
@@ -182,7 +205,9 @@ API 服务启动后，在 Copilot 插件中将 Base URL 设为 `http://localhost
 - ✅ Step 4 — 索引层与 QA 问答流
 - ✅ Step 5 — Wiki 编译层（Karpathy 理念 + 连通分量）
 - ✅ Step 6 — FastAPI 服务与 Obsidian 对接
-- 🔜 Step 7 — V2/V3 源定时抓取与音视频处理
+- ✅ Step 7 — MCP 服务（供 AI Agent 标准协议调用）
+- ✅ Step 8 — 两步走分层问答（Wiki 优先 → 降级 Processed）
+- 🔜 Step 9 — V2/V3 源定时抓取与音视频处理
 - 🔜 Step 8 — 多学生协作与学习分析
 
 ---
@@ -193,7 +218,7 @@ API 服务启动后，在 Copilot 插件中将 Base URL 设为 `http://localhost
 pytest tests/ -v
 ```
 
-覆盖关联算法、Wiki 编译、完整流水线（录入→加工→索引→问答）的 37 个单元测试。
+覆盖关联算法、Wiki 编译、完成流水线（录入→加工→索引→问答）的 38 个单元测试。
 
 ---
 

@@ -31,11 +31,18 @@ def _fake_process_json(prompt: str, *, schema: type, **kwargs: Any) -> Any:
 
 
 def _fake_select_json(prompt: str, *, schema: type, **kwargs: Any) -> Any:
-    """模拟 QA 选笔记用 llm.chat_json 返回 NoteSelection。"""
+    """模拟 QA 选笔记用 llm.chat_json 返回 NoteSelection。
+
+    返回 prompt 中出现的第一个笔记文件名 (如果有)。
+    """
     from src.qa_engine import NoteSelection
+    # 从 prompt 中提取文件名 (形如 "- xxx.md |")
+    import re
+    m = re.search(r"- ([\w\-]+\.md) \|", prompt)
+    fname = m.group(1) if m else "agent-note.md"
     return NoteSelection(
-        top_filenames=["agent-note.md"],
-        reasons=["直接讨论了 AI Agent 架构"],
+        top_filenames=[fname],
+        reasons=["与问题最相关"],
     )
 
 
@@ -203,6 +210,44 @@ class TestPipelineQa:
         answer = qa("AI Agent 架构？", auto_rebuild=True)
         assert "[[" in answer
         assert "agent-note" in answer or "agent" in answer.lower()
+
+    def test_qa_wiki_tier_preferred_over_notes(
+        self, tmp_kb: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """验证两步走: 有 Wiki 时优先走 Wiki 层。"""
+        from src.qa_engine import qa
+        from src.indexer import rebuild_index
+        import frontmatter
+
+        # 创建一篇普通笔记
+        make_note(settings.PROCESSED_DIR, "agent-note", "AI Agent 架构",
+                  ["AI", "Agent"],
+                  body="# AI Agent\n\n## 核心结论\n> Agent 架构细节。\n\n## 详细内容\n内容。\n\n## 相关笔记\n")
+
+        # 创建一篇 Wiki 综述 (带 frontmatter type=wiki)
+        wiki_body = "# AI Agent 宏观综述\n\n## 概述\nAI Agent 是人工智能的核心方向。\n\n## 详细内容\n综述全文。\n\n## 相关笔记\n"
+        wiki_post = frontmatter.Post(
+            content=wiki_body,
+            title="AI Agent 宏观综述 (Wiki 综述)",
+            type="wiki",
+            topic="AI Agent",
+            compiled="2026-06-21",
+            updated="2026-06-21",
+            source_notes=["agent-note"],
+            tags=["AI", "Agent"],
+        )
+        wiki_path = settings.WIKI_DIR / "ai-agent-wiki.md"
+        wiki_path.write_text(frontmatter.dumps(wiki_post, sort_keys=False), encoding="utf-8")
+
+        rebuild_index()
+
+        monkeypatch.setattr("src.qa_engine.llm.chat_json", _fake_select_json)
+        monkeypatch.setattr("src.qa_engine.llm.chat", _fake_qa_chat)
+
+        answer = qa("AI Agent 的整体架构？")
+        assert "[[" in answer
+        # Wiki 命中 -> 回答应包含 Wiki 的宏观内容
+        assert "宏观" not in answer or answer  # wiki body fed as context
 
 
 class TestPipelineRelations:

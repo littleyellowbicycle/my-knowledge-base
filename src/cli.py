@@ -161,6 +161,15 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mcp(args: argparse.Namespace) -> int:
+    """启动 MCP 服务 (stdio 模式，供 AI Agent 通过标准协议调用)。"""
+    from src.mcp_server import run_mcp
+    _emit("启动 MCP 服务 (stdio)，供 Claude Desktop / Cursor 等 AI Agent 调用...")
+    _emit("按 Ctrl+C 停止。")
+    run_mcp()
+    return 0
+
+
 # ---------- 解析器构建 ----------
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -218,6 +227,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--host", default="127.0.0.1", help="监听地址 (默认 127.0.0.1)")
     p.add_argument("--port", type=int, default=8000, help="端口 (默认 8000)")
     p.set_defaults(func=cmd_serve)
+
+    # mcp
+    p = sub.add_parser("mcp", help="启动 MCP 服务 (stdio，供 AI Agent 调用)")
+    p.set_defaults(func=cmd_mcp)
 
     return parser
 
