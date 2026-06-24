@@ -16,15 +16,24 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     输入网关 (Gateway)                       │
+│                  输入网关 (Gateway — 通道分层架构)            │
 │  ┌──────────┐  ┌──────────────────────────┐  ┌──────────┐  │
-│  │ 手动输入  │  │ 链接抓取 (多平台路由)     │  │ V2/V3源  │  │
-│  │          │  │ GitHub→gh │ 微信→Jina     │  │ 定时/API │  │
-│  │          │  │ 其他→Crawl4AI             │  │ 文件/音视│  │
+│  │ 手动输入  │  │ Channel Router (瘦路由)  │  │ V2/V3源  │  │
+│  │          │  │  URL → match() → channel │  │ 定时/API │  │
+│  │          │  │                          │  │ 文件/音视│  │
 │  └─────┬────┘  └────────────┬─────────────┘  └─────┬────┘  │
-│        └────────────────────┼──────────────────────┘       │
-│                             ▼                               │
-│                [统一归一化入口 normalize()]                  │
+│        │           ┌────────┼────────┐              │       │
+│        │           ▼        ▼        ▼              │       │
+│        │      ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐  │       │
+│        │      │GitHub│ │知乎   │ │微信   │ │通用   │  │       │
+│        │      │Channel│ │Channel│ │Channel│ │Channel│  │       │
+│        │      │gh CLI│ │API+  │ │Jina  │ │Crawl4│  │       │
+│        │      │      │ │Crawl4│ │Reader│ │AI兜底│  │       │
+│        │      └──┬───┘ └──┬───┘ └──┬───┘ └──┬───┘  │       │
+│        └─────────┼────────┼────────┼────────┼──────┘       │
+│                  └────────┼────────┴────────┘              │
+│                           ▼                                 │
+│             [统一归一化入口 normalize()]                     │
 └─────────────────────────────┬───────────────────────────────┘
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -52,19 +61,64 @@
 
 ## 2. 模块拆分与职责
 
-### 模块 A：输入网关 (Gateway)
+### 模块 A：输入网关 (Gateway — 通道分层架构)
 职责：接收一切来源，按平台路由分发抓取，归一化为统一格式后送入原料层。
 
-| 子模块          | 输入                 | 路由工具                          | 输出          | MVP 状态 |
-| --------------- | -------------------- | --------------------------------- | ------------- | -------- |
-| 手动输入        | 终端键入纯文本/想法  | —                                 | markdown 文件 | ✅        |
-| 链接抓取-GitHub | github.com URL       | gh CLI / REST API	README          | 原文          | ✅        |
-| 链接抓取-微信   | mp.weixin.qq.com URL | Jina Reader API                   | 干净 Markdown | ✅        |
-| 链接抓取-通用   | 其他任意 URL         | Crawl4AI (HTTP/Playwright 自适应) | 干净 Markdown | ✅        |
-| 定时拉取        | RSS/订阅源           | —                                 | markdown      | 🔜 V2     |
-| API 推送        | HTTP POST            | —                                 | markdown      | 🔜 V2     |
-| 文件解析        | PDF/图片             | OCR/解析                          | 文本          | 🔜 V3     |
-| 音视频转写      | 音频/视频            | Whisper                           | 文本          | 🔜 V3     |
+#### A.1 通道分层设计 (V2.2 重构)
+
+网关采用**通道 (Channel) 插件化架构**，每个平台一个独立通道文件，路由器零逻辑遍历通道列表：
+
+```
+src/gateway/
+├── __init__.py            # 对外暴露 fetch_url() / fetch_manual() / is_expandable()
+├── router.py              # 瘦路由: 遍历 channels，第一个 match() 命中的负责处理
+├── base.py                # Channel 协议 (match + fetch + 可选 fetch_items)
+└── channels/
+    ├── __init__.py        # 自动注册所有通道 (按优先级排序)
+    ├── github.py          # gh CLI + REST API
+    ├── zhihu.py           # 收藏夹 items API + Crawl4AI 单篇
+    ├── weixin.py          # Jina Reader
+    ├── generic.py         # Crawl4AI 兜底 (永远最后匹配)
+    └── xiaohongshu.py     # 未来扩展
+```
+
+#### A.2 Channel 协议
+
+```python
+class Channel(Protocol):
+    name: str                              # "zhihu" / "weixin" / "github"
+    def match(self, url: str) -> bool      # 这个 URL 归我管吗？
+    def fetch(self, url: str, cookies=None) -> str          # 抓取 → markdown
+    def fetch_items(self, url: str, cookies=None) -> list[dict] | None
+        # 可选: 展开型通道 (收藏夹)。返回 [{url, title}] 或 None (不支持展开)
+```
+
+#### A.3 Cookie 传递机制
+
+Cookie 优先级 (从高到低):
+1. **显式参数**: `fetch_url(url, cookies={"z_c0":"..."})` — 一次性传入
+2. **通道专属文件**: `cookies_zhihu.json` — 各通道独立读取
+3. **全局文件**: `cookies.json` — 通用兜底
+4. **无 cookie**: 公开内容能抓则抓，需登录则返回清晰提示
+
+#### A.4 抓取策略分层
+
+| 通道 | 列表/索引 | 单篇正文 | Cookie 需求 |
+| ---- | --------- | -------- | ----------- |
+| GitHub | — | gh CLI / REST API | 可选 (提速率限制) |
+| 知乎 | requests + items API (JSON) | Crawl4AI (Playwright+cookie注入) → requests+bs4 → API 兜底 | 必须 (items API 401) |
+| 微信 | — | Jina Reader API → Crawl4AI | 免 cookie |
+| 小红书 | requests + API | Crawl4AI (重JS+cookie) | 必须 |
+| 通用 | — | Crawl4AI → requests | 可选 |
+
+**关键原则**:
+- JSON API 用 requests (轻量快速)，JS 渲染页面用 Crawl4AI (浏览器渲染)
+- 展开型通道 (如知乎收藏夹): 先 API 拿列表 → 逐篇 Crawl4AI 抓正文
+- 每个通道内部自行选择最优工具组合，路由器不关心细节
+
+#### A.5 新增平台流程
+
+只需在 `channels/` 下加一个文件实现 Channel 协议，在 `__init__.py` 注册。**不改动任何现有代码** (开闭原则)。
 
 
 归一化后的数据结构 (Raw Entry):
@@ -299,6 +353,12 @@ summaries.json (摘要卡片):
 ```
 normalize(raw_input) → RawEntry              # Gateway → Raw
 process(RawEntry) → ProcessedNote            # Raw → Processed (经 LLM + JSON Mode)
+
+# --- 输入网关接口 (V2.2 通道分层) ---
+fetch_url(url, cookies=None) → str           # 瘦路由 → channel.fetch()
+fetch_zhihu_collection_items(url, cookies=None) → list[dict]  # 展开型: 返回文章列表
+save_collection(url) → list[RawEntry]        # 收藏夹 → 多篇独立 raw 条目
+# Channel 协议: match(url) → bool | fetch(url, cookies) → str | fetch_items(url, cookies) → list|None
 compute_relations(new_note) → RelatedList    # Processed 内部 (确定性打分)
 index_note(ProcessedNote) → IndexUpdate      # Processed → Index
 compile_wiki(topic) → WikiPage               # Processed → Wiki (经 llmwiki + 胶水层) ⭐
@@ -387,13 +447,27 @@ graph TD
     classDef output fill:#f3e5f5,stroke:#4a148c,stroke-width:2px;
     classDef llm fill:#eeeeee,stroke:#424242,stroke-dasharray: 5 5;
 
-    subgraph Gateway [模块 A: 输入网关]
+    subgraph Gateway [模块 A: 输入网关 — 通道分层]
         A1[手动输入/想法]:::gateway
-        A2[链接抓取<br/>gh CLI / Jina / Crawl4AI]:::gateway
+        Router[Channel Router<br/>URL → match() → channel]:::gateway
+        A1 --> Router
         A3[定时拉取/API推送 V2]:::gateway
         A4[文件解析/音视频 V3]:::gateway
-        A1 & A2 & A3 & A4 -->|归一化| Normalize(统一入口 normalize):::gateway
+        Router -->|归一化| Normalize(统一入口 normalize):::gateway
     end
+
+    subgraph Channels [通道插件]
+        Ch1[GitHub Channel<br/>gh CLI / REST API]:::gateway
+        Ch2[知乎 Channel<br/>items API + Crawl4AI]:::gateway
+        Ch3[微信 Channel<br/>Jina Reader]:::gateway
+        Ch4[通用 Channel<br/>Crawl4AI 兜底]:::gateway
+    end
+
+    Router -.->|match| Ch1
+    Router -.->|match| Ch2
+    Router -.->|match| Ch3
+    Router -.->|fallback| Ch4
+    Ch1 & Ch2 & Ch3 & Ch4 -.->|markdown| Normalize
 
     LLM((LLM Adapter<br/>Ollama/OpenAI<br/>JSON Mode)):::llm
 

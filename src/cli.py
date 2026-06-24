@@ -164,8 +164,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
 def cmd_mcp(args: argparse.Namespace) -> int:
     """启动 MCP 服务 (stdio 模式，供 AI Agent 通过标准协议调用)。"""
     from src.mcp_server import run_mcp
-    _emit("启动 MCP 服务 (stdio)，供 Claude Desktop / Cursor 等 AI Agent 调用...")
-    _emit("按 Ctrl+C 停止。")
+    _emit("启动 MCP 服务 (stdio)，供 Claude Desktop / Cursor 等 AI Agent 调用...", file=sys.stderr)
+    _emit("按 Ctrl+C 停止。", file=sys.stderr)
     run_mcp()
     return 0
 

@@ -10,6 +10,7 @@
 对外暴露:
     save_manual(text)              -> RawEntry   手动输入落盘
     save_link(url, text=None)      -> RawEntry   链接抓取落盘 (text 已抓则直接用)
+    save_collection(url)           -> list[RawEntry]  收藏夹 URL -> 多篇落盘
     load_raw(raw_id)               -> RawEntry   读取原料条目 (含原文)
     mark_status(raw_id, status)    -> None       推进状态 (pending->processed->indexed)
 """
@@ -100,18 +101,19 @@ def save_manual(text: str) -> RawEntry:
     return _save(entry)
 
 
-def save_link(url: str, text: str | None = None) -> RawEntry:
+def save_link(url: str, text: str | None = None, cookies: dict | None = None) -> RawEntry:
     """链接抓取 -> 归一化 -> 落盘。
 
     Args:
-        url:  目标链接
-        text: 可选，已抓取的文本；None 则自动调用 gateway.fetch_url(url)
+        url:     目标链接
+        text:    可选，已抓取的文本；None 则自动调用 gateway.fetch_url(url)
+        cookies: 可选登录态 (传递给网关通道，如知乎 cookie)
     """
     url = (url or "").strip()
     if not url:
         raise ValueError("URL 不能为空")
     if text is None:
-        text = gateway.fetch_url(url)
+        text = gateway.fetch_url(url, cookies=cookies)
     if not text or not text.strip():
         raise RuntimeError(f"抓取内容为空: {url}")
     entry = RawEntry(
@@ -123,6 +125,42 @@ def save_link(url: str, text: str | None = None) -> RawEntry:
         status=RawStatus.PENDING,
     )
     return _save(entry)
+
+
+def save_collection(url: str, cookies: dict | None = None) -> list[RawEntry]:
+    """展开型 URL (如知乎收藏夹) -> 获取文章列表 -> 逐篇 save_link 落盘。
+
+    每篇文章存为独立的 raw 条目，便于后续逐篇加工。
+
+    Args:
+        url:     收藏夹链接 (如 https://www.zhihu.com/collection/123)
+        cookies: 可选登录态
+
+    Returns:
+        成功落盘的 RawEntry 列表 (跳过失败的文章)
+    """
+    url = (url or "").strip()
+    if not url:
+        raise ValueError("URL 不能为空")
+
+    items = gateway.fetch_items(url, cookies=cookies)
+    if not items:
+        raise RuntimeError(f"未获取到任何文章: {url}")
+
+    entries: list[RawEntry] = []
+    failed: list[str] = []
+    for i, item in enumerate(items, 1):
+        try:
+            logger.info("收藏夹进度: %d/%d %s", i, len(items), item["title"][:40])
+            entry = save_link(item["url"], cookies=cookies)
+            entries.append(entry)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("跳过文章 [%d] %s: %s", i, item.get("url", ""), e)
+            failed.append(item.get("url", ""))
+
+    if failed:
+        logger.warning("收藏夹 %s: 成功 %d 篇, 失败 %d 篇", url, len(entries), len(failed))
+    return entries
 
 
 # ---------- 读取与状态推进 ----------

@@ -33,6 +33,7 @@ from mcp.server.fastmcp import FastMCP
 
 from src.config import settings
 from src import raw_store, processor, indexer, qa_engine, wiki_compiler
+from src.gateway import is_expandable
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +42,23 @@ mcp = FastMCP("MyKnowledgeBase")
 
 @mcp.tool()
 def ingest_url(url: str) -> str:
-    """抓取一个 URL (GitHub/微信公众号/通用网页) 并归档到原料层。
+    """抓取一个 URL (GitHub/微信公众号/知乎/通用网页) 并归档到原料层。
     不执行 LLM 加工，需后续调用 process_pending 才会生成结构化笔记。
 
+    支持展开型 URL (如知乎收藏夹): 自动展开为多篇独立 raw 条目。
+    (知乎收藏夹 items API 需登录态，请放置 cookies.json 或 cookies_zhihu.json)
+
     Args:
-        url: 目标链接 (如 https://github.com/owner/repo)
+        url: 目标链接 (如 https://github.com/owner/repo
+             或 https://www.zhihu.com/collection/123)
     """
     try:
         settings.ensure_dirs()
+        if is_expandable(url):
+            entries = raw_store.save_collection(url)
+            names = "\n".join(f"- {e.id}" for e in entries[:10])
+            suffix = f"\n... (共 {len(entries)} 篇)" if len(entries) > 10 else ""
+            return f"已抓取并归档 {len(entries)} 篇文章到原料层:\n{names}{suffix}"
         entry = raw_store.save_link(url)
         return f"已抓取并归档到原料层: id={entry.id} source_type={entry.source_type.value}"
     except Exception as e:  # noqa: BLE001

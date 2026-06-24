@@ -5,6 +5,9 @@ pydantic>=2.6.0
 # ===== 输入网关 (多平台路由) =====
 crawl4ai>=0.3.0
 requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+markdownify>=0.13.0
 
 # ===== 关联算法与索引层 =====
 jieba>=0.42.1

@@ -24,13 +24,53 @@
 
 ---
 
-## 三、输入网关 (多平台路由)
+## 三、输入网关 (通道分层架构 V2.2)
+
+网关从单文件 `gateway.py` 重构为**通道 (Channel) 插件化架构**，每个平台一个独立通道，新增平台不改已有代码 (开闭原则)。
+
+### 架构
 
 | 层级 / 模块 | 技术选型 | 角色 / 形态 | 选型理由 |
 | --- | --- | --- | --- |
-| **网页抓取-主** | **Crawl4AI** | 运行时依赖 | 自动判断 HTTP/Playwright 渲染模式，输出干净 Markdown，通吃知乎/小红书/各类博客 |
-| **网页抓取-微信** | **Jina Reader API** | 外部云服务 | 完美绕过公众号严格反爬，免维护 Cookie，直接返回纯净正文 |
-| **网页抓取-GitHub** | **`gh` CLI** | 系统工具调用 | 官方 API 路径，稳定防限流，直接拉取 README 或源码原文 |
+| **通道协议** | **Channel (Protocol)** | `base.py` 定义 `match() + fetch() + fetch_items()` | 每个平台实现协议，路由器零逻辑遍历 |
+| **瘦路由** | **router.py** | `fetch_url(url, cookies=None)` 遍历 channels 列表 | 第一个 `match()` 命中的通道负责处理，generic 永远兜底 |
+
+### 通道清单
+
+| 通道 | 列表/索引抓取 | 单篇正文抓取 | Cookie | HTML 解析 |
+| --- | --- | --- | --- | --- |
+| **GitHub** | — | gh CLI / REST API | 可选 | — |
+| **知乎** | requests + items API (JSON, 分页) | Crawl4AI (Playwright+cookie注入) → requests+bs4 → API 兜底 | 必须 (items API 401) | bs4 + markdownify |
+| **微信** | — | Jina Reader API → Crawl4AI | 免 cookie | Jina 直接输出 MD |
+| **通用 (兜底)** | — | Crawl4AI → requests | 可选 | 内置正则清理 |
+| **小红书** (规划) | requests + API | Crawl4AI (重JS+cookie) | 必须 | bs4 + markdownify |
+
+### 新增依赖
+
+| 技术 | 角色 | 选型理由 |
+| --- | --- | --- |
+| **Crawl4AI** | 网页抓取-主 (Playwright 渲染) | 自动判断 HTTP/浏览器模式，支持 cookie 注入到浏览器会话，解决 JS 渲染 + 登录态双重问题 |
+| **BeautifulSoup4 + lxml** | HTML 解析 (知乎/小红书等) | 稳定的 CSS 选择器提取，配合 lxml 解析器高性能 |
+| **markdownify** | HTML → Markdown 转换 | 保留标题/链接/列表语义，输出兼容 Obsidian |
+| **requests** | JSON API 调用 (知乎 items API) | 轻量快速，纯 API 不需要浏览器渲染 |
+
+### Cookie 管理机制
+
+| 优先级 | 来源 | 格式 | 说明 |
+| --- | --- | --- | --- |
+| 1 (最高) | 显式参数 `cookies={...}` | dict | `fetch_url(url, cookies={"z_c0":"..."})` 一次性传入 |
+| 2 | 通道专属文件 `cookies_zhihu.json` | `[{name, value}]` | 各通道独立读取，互不干扰 |
+| 3 | 全局文件 `cookies.json` | `[{name, value}]` | 通用兜底 |
+| 4 (最低) | 无 | — | 公开内容能抓则抓，需登录返回清晰提示 |
+
+### 抓取策略选型理由
+
+| 决策 | 理由 |
+| --- | --- |
+| 知乎列表用 requests 而非 Crawl4AI | items API 返回纯 JSON，requests 一个 GET 即可，Crawl4AI 渲染 JSON API 浪费 10 倍时间 |
+| 知乎正文用 Crawl4AI 而非 requests | 文章页面重 JS 渲染，`RichContent-inner` 动态填充，requests 只拿到空壳 |
+| 微信用 Jina Reader 而非 Crawl4AI | 公众号反爬严格但 Jina 已完美绕过，Crawl4AI 反而慢 |
+| 小红书用 Crawl4AI | 重 JS + 强反爬，requests 几乎拿不到内容，必须浏览器渲染 + cookie |
 
 ---
 

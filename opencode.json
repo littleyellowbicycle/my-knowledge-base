@@ -3,8 +3,10 @@
   "mcp": {
     "my-knowledge-base": {
       "type": "local",
-      "command": ["python", "D:\\project\\my-konwledge-base\\kb.py", "mcp"],
-      "enabled": true
+      "command": ["python", "kb.py", "mcp"],
+      "cwd": "D:\\project\\my-knowledge-base",
+      "enabled": true,
+      "timeout": 30000
     }
   }
 }

@@ -35,10 +35,10 @@ class Settings:
     INDEX_DIR: Path = KB_ROOT / "index"
 
     # ---- LLM 模型路由 (一层一模型) ----
-    MODEL_PROCESS: str = os.getenv("MODEL_PROCESS", "zhipu/glm-4-flash")
-    MODEL_WIKI: str = os.getenv("MODEL_WIKI", "moonshot/moonshot-v1-128k")
-    MODEL_QA: str = os.getenv("MODEL_QA", "deepseek/deepseek-chat")
-    MODEL_FALLBACK: str = os.getenv("MODEL_FALLBACK", "ollama/qwen2.5:7b")
+    MODEL_PROCESS: str = os.getenv("MODEL_PROCESS", "minimax/MiniMax-M3")
+    MODEL_WIKI: str = os.getenv("MODEL_WIKI", "minimax/MiniMax-M3")
+    MODEL_QA: str = os.getenv("MODEL_QA", "minimax/MiniMax-M3")
+    MODEL_FALLBACK: str = os.getenv("MODEL_FALLBACK", "minimax/MiniMax-M3")
 
     # ---- 外部 API ----
     JINA_API_KEY: str | None = os.getenv("JINA_API_KEY") or None

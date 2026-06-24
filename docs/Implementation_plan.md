@@ -21,6 +21,29 @@
   3. 实现 `save_raw()`：将文本存为 `raw/{id}.txt`，元数据存为 `raw/{id}.meta.json`。
 * **产出**：输入一个 URL 或文本，自动在 `raw/` 目录生成归档文件。
 
+## Step 1.5: 输入网关通道分层重构 (V2.2)
+* **目标**：将单文件 `gateway.py` 重构为通道 (Channel) 插件化架构，支持知乎收藏夹展开、cookie 参数传递、Crawl4AI 正文渲染。
+* **动作**：
+  1. **创建目录结构** `src/gateway/{__init__,router,base}.py` + `src/gateway/channels/{__init__,github,zhihu,weixin,generic}.py`。
+  2. **定义 Channel 协议** (`base.py`)：`name` / `match(url)→bool` / `fetch(url, cookies=None)→str` / `fetch_items(url, cookies=None)→list[dict]|None`。
+  3. **实现瘦路由** (`router.py`)：`fetch_url(url, cookies=None)` 遍历 channels 列表，第一个 `match()` 命中的通道负责处理。`generic` 永远排最后兜底。
+  4. **迁移现有通道**：将 `gateway.py` 中的 GitHub / 微信 / 通用代码拆到各自 channel 文件，行为完全不变。
+  5. **实现知乎通道** (`zhihu.py`)：
+     * `match()`: 正则匹配 `zhihu.com` (collection / answer / zhuanlan)。
+     * `fetch_items()`: requests 调 `/api/v4/collections/{id}/items` 分页拉取文章列表 `[{url, title}]`，需 cookie。
+     * `fetch()`: 单篇 — Crawl4AI 优先 (Playwright + cookie 注入解决 JS 渲染 + 登录态) → 失败回退 requests + bs4 → 再失败回退 answers API。
+  6. **实现 cookie 传递链**：`fetch_url(cookies=)` → `channel.fetch(cookies=)` → 通道内 `cookies or _load_cookies_file()`，多级优先 (显式参数 > 通道专属文件 > 全局文件 > 无)。
+  7. **更新 raw_store**：`save_link()` 和新增的 `save_collection()` 接受可选 `cookies` 参数，传递到 `fetch_url()`。
+  8. **更新 MCP 工具**：`ingest_url` 自动检测展开型 URL (通过 `is_expandable()` / `fetch_items()`)，收藏夹 URL 自动展开为多篇独立 raw 条目。
+  9. **安装新依赖**：`pip install beautifulsoup4 lxml markdownify`，更新 `requirements.txt`。
+  10. **删除旧 `gateway.py`**，更新 `__init__.py` 导出路径，确保 `from src import gateway` 仍可用。
+* **产出**：网关变为可插拔通道架构，知乎收藏夹一行 `ingest_url` 自动展开 156 篇，新增平台只需加文件不改已有代码。
+* **验收**：
+  * `python test_mcp.py` 全部 7 工具正常。
+  * `ingest_url("https://www.zhihu.com/collection/522614669")` (带 cookie) → 156 篇 raw 条目。
+  * `ingest_url("https://www.zhihu.com/collection/522614669")` (无 cookie) → 清晰错误提示，不崩溃。
+  * `fetch_url("https://github.com/...")` 行为与重构前一致 (回归测试)。
+
 ## Step 2: 加工引擎与结构化产出 (模块 B2)
 * **目标**：将原料层的纯文本，通过 LLM (JSON Mode) 加工为带 Frontmatter 的标准 Obsidian 笔记。
 * **动作**：
