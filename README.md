@@ -5,11 +5,14 @@
 **收藏不是终点，遗忘才是 —— 把散落各处的收藏夹，炼成可问答的知识体系**
 
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![LiteLLM](https://img.shields.io/badge/LiteLLM-4F4F8F?logo=litellm&logoColor=white)
+![Pydantic](https://img.shields.io/badge/Pydantic-E9209E?logo=pydantic&logoColor=white)
 ![License-MIT](https://img.shields.io/badge/License-MIT-green.svg)
 
 </div>
 
-## ✨ 核心特性
+## 核心特性
 
 - **统一归档** — 微信/知乎/GitHub/网页，一个命令收编所有平台的收藏
 - **自动加工** — LLM 提炼 2-3 句核心结论，长文不必从头读
