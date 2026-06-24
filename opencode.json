@@ -1,10 +1,10 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "my-knowledge-base": {
+    "oh-my-knowledge": {
       "type": "local",
       "command": ["python", "kb.py", "mcp"],
-      "cwd": "D:\\project\\my-knowledge-base",
+      "cwd": "D:\\project\\oh-my-knowledge",
       "enabled": true,
       "timeout": 30000
     }

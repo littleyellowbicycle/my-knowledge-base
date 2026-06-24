@@ -8,9 +8,9 @@
     2. 配置到客户端:     在 claude_desktop_config.json / mcp_servers.json 中添加:
         {
           "mcpServers": {
-            "my-knowledge-base": {
+            "oh-my-knowledge": {
               "command": "python",
-              "args": ["D:\\project\\my-konwledge-base\\kb.py", "mcp"]
+              "args": ["D:\\project\\oh-my-knowledge\\kb.py", "mcp"]
             }
           }
         }
@@ -19,6 +19,8 @@
     ingest_url(url)            抓取 URL → 归档 raw 层 (不加工)
     ingest_text(text)         手动录入文本 → 归档 raw 层 (不加工)
     process_pending()         批量加工所有 pending 原料为结构化笔记
+    run_pipeline()            自动管线: 加工 → 索引 → Wiki 编译
+    ingest_and_process(url)   一键全流程: 录入 → 加工 → 索引 → Wiki
     ask(question)             两步走问答 (Wiki 优先 → 降级 Processed)
     compile_wiki(topic?)      编译 Wiki 综述 (不带 topic 编译全部达标簇)
     rebuild_index()           重建索引层
@@ -32,7 +34,7 @@ from typing import Optional
 from mcp.server.fastmcp import FastMCP
 
 from src.config import settings
-from src import raw_store, processor, indexer, qa_engine, wiki_compiler
+from src import raw_store, processor, indexer, qa_engine, wiki_compiler, workflow
 from src.gateway import is_expandable
 
 logger = logging.getLogger(__name__)
@@ -173,6 +175,42 @@ def stats() -> str:
         )
     except Exception as e:  # noqa: BLE001
         return f"统计失败: {e}"
+
+
+@mcp.tool()
+def ingest_and_process(url: str) -> str:
+    """录入 URL → 自动加工 → 索引 → 编译 Wiki (一键全流程)。
+
+    Args:
+        url: 目标链接 (自动识别收藏夹/单篇)
+    """
+    try:
+        settings.ensure_dirs()
+        result = workflow.ingest_and_process(url)
+        p = result["pipeline"]
+        return (
+            f"完成: 归档 {result['entries']} 篇, "
+            f"加工 {p['processed']} 篇, "
+            f"索引 {p['index']['notes']} 笔记/{p['index']['tags']} 标签, "
+            f"生成 {p['wiki']} 篇 Wiki 综述"
+        )
+    except Exception as e:
+        return f"工作流失败: {e}"
+
+
+@mcp.tool()
+def run_pipeline() -> str:
+    """加工所有 pending → 重建索引 → 编译 Wiki (不录入，只处理已归档的原料)。"""
+    try:
+        settings.ensure_dirs()
+        result = workflow.run_pipeline()
+        return (
+            f"管线完成: 加工 {result['processed']} 篇, "
+            f"索引 {result['index']['notes']} 笔记/{result['index']['tags']} 标签, "
+            f"生成 {result['wiki']} 篇 Wiki 综述"
+        )
+    except Exception as e:
+        return f"管线失败: {e}"
 
 
 def run_mcp() -> None:

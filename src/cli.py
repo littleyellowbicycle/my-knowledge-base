@@ -30,6 +30,7 @@ from src import processor
 from src import indexer
 from src import qa_engine
 from src import wiki_compiler
+from src import workflow
 
 
 # ---------- 通用工具 ----------
@@ -161,6 +162,20 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_workflow(args: argparse.Namespace) -> int:
+    """一键管线: 录入(可选) → 加工 → 索引 → Wiki 编译。"""
+    if args.url:
+        result = workflow.ingest_and_process(args.url)
+        _emit(f"归档: {result['entries']} 篇")
+    else:
+        result = {"entries": 0, "pipeline": workflow.run_pipeline()}
+    p = result["pipeline"]
+    _emit(f"加工: {p['processed']} 篇")
+    _emit(f"索引: {p['index']['notes']} 笔记 / {p['index']['tags']} 标签")
+    _emit(f"Wiki: {p['wiki']} 篇综述")
+    return 0
+
+
 def cmd_mcp(args: argparse.Namespace) -> int:
     """启动 MCP 服务 (stdio 模式，供 AI Agent 通过标准协议调用)。"""
     from src.mcp_server import run_mcp
@@ -227,6 +242,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--host", default="127.0.0.1", help="监听地址 (默认 127.0.0.1)")
     p.add_argument("--port", type=int, default=8000, help="端口 (默认 8000)")
     p.set_defaults(func=cmd_serve)
+
+    # workflow
+    p = sub.add_parser("workflow", help="一键管线: 录入(可选) → 加工 → 索引 → Wiki")
+    p.add_argument("-u", "--url", help="可选，先录入 URL 再跑管线")
+    p.set_defaults(func=cmd_workflow)
 
     # mcp
     p = sub.add_parser("mcp", help="启动 MCP 服务 (stdio，供 AI Agent 调用)")

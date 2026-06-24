@@ -1,0 +1,55 @@
+"""工作流 — 一键式自动管线：录入 → 加工 → 索引 → Wiki 编译。"""
+
+from __future__ import annotations
+
+import logging
+
+from src import raw_store, processor, indexer, wiki_compiler
+from src.gateway import is_expandable
+
+logger = logging.getLogger(__name__)
+
+
+def run_pipeline() -> dict:
+    """执行加工 → 索引 → Wiki 编译管线。
+
+    Returns:
+        {"processed": int, "index": dict, "wiki": int}
+    """
+    logger.info("=== Step 1/3: process_pending ===")
+    paths = processor.process_pending()
+    logger.info("加工完成: %d 篇", len(paths))
+
+    logger.info("=== Step 2/3: rebuild_index ===")
+    stats = indexer.rebuild_index()
+    logger.info("索引完成: notes=%d wiki=%d tags=%d",
+                stats["notes"], stats["wiki"], stats["tags"])
+
+    logger.info("=== Step 3/3: compile_wiki ===")
+    wiki_results = wiki_compiler.compile_all_wiki()
+    logger.info("Wiki 编译完成: %d 篇", len(wiki_results))
+
+    return {
+        "processed": len(paths),
+        "index": stats,
+        "wiki": len(wiki_results),
+    }
+
+
+def ingest_and_process(url: str, cookies: dict | None = None) -> dict:
+    """录入 URL → 自动展开收藏夹 → 跑完整管线。
+
+    Returns:
+        {"entries": int, "pipeline": dict}
+    """
+    logger.info("录入: %s", url)
+    if is_expandable(url):
+        entries = raw_store.save_collection(url, cookies=cookies)
+        entry_count = len(entries)
+    else:
+        raw_store.save_link(url, cookies=cookies)
+        entry_count = 1
+    logger.info("归档 %d 篇，启动管线...", entry_count)
+
+    pipeline = run_pipeline()
+    return {"entries": entry_count, "pipeline": pipeline}

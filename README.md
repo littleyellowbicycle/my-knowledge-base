@@ -103,8 +103,8 @@ _试问，你收藏过的那些"好文章"，上一次翻开是什么时候？_
 
 ```bash
 # 克隆项目
-git clone https://github.com/littleyellowbicycle/my-knowledge-base.git
-cd my-knowledge-base
+git clone https://github.com/littleyellowbicycle/oh-my-knowledge.git
+cd oh-my-knowledge
 
 # 安装依赖
 pip install -r requirements.txt
@@ -113,10 +113,8 @@ pip install -r requirements.txt
 cp .env.example .env
 # 编辑 .env 填入至少一个模型供应商的 Key
 
-# 录入 → 加工 → 索引 → 问答
-python kb.py ingest -t "你的第一篇笔记"
-python kb.py process --all
-python kb.py index
+# 一键全流程: 录入 → 加工 → 索引 → Wiki
+python kb.py workflow -u "https://github.com/..."
 python kb.py qa "你的问题"
 ```
 
@@ -178,11 +176,13 @@ python kb.py mcp
 | `ingest_url(url)` | 抓取 URL 并归档到原料层 |
 | `ingest_text(text)` | 手动录入文本到原料层 |
 | `process_pending()` | 批量加工所有 pending 原料为结构化笔记 |
+| `run_pipeline()` | 自动管线: 加工 → 索引 → Wiki 编译 |
+| `ingest_and_process(url)` | 一键全流程: 录入 → 加工 → 索引 → Wiki |
 | `compile_wiki(topic?)` | 编译 Wiki 综述（全量或按主题单簇） |
 | `rebuild_index()` | 重建索引层（新增笔记后必调） |
 | `stats()` | 各层条目统计 |
 
-Agent 调用知识库时，典型工作流为：`ingest_url` → `process_pending` → `rebuild_index` → `ask`。
+Agent 调用知识库时，典型工作流为：`ingest_and_process(url)` 一键完成，或手动分步 `ingest_url` → `run_pipeline` → `ask`。
 
 #### Claude Desktop
 
@@ -191,9 +191,9 @@ Agent 调用知识库时，典型工作流为：`ingest_url` → `process_pendin
 ```json
 {
   "mcpServers": {
-    "my-knowledge-base": {
+    "oh-my-knowledge": {
       "command": "python",
-      "args": ["D:\\project\\my-konwledge-base\\kb.py", "mcp"]
+      "args": ["D:\\project\\oh-my-knowledge\\kb.py", "mcp"]
     }
   }
 }
@@ -207,10 +207,10 @@ Agent 调用知识库时，典型工作流为：`ingest_url` → `process_pendin
 
 | 字段 | 值 |
 |------|-----|
-| Name | `my-knowledge-base` |
+| Name | `oh-my-knowledge` |
 | Type | `command` |
 | Command | `python` |
-| Args | `D:\project\my-konwledge-base\kb.py mcp` |
+| Args | `D:\project\oh-my-knowledge\kb.py mcp` |
 
 #### Opencode
 
@@ -220,7 +220,7 @@ Agent 调用知识库时，典型工作流为：`ingest_url` → `process_pendin
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "my-knowledge-base": {
+    "oh-my-knowledge": {
       "type": "local",
       "command": ["python", "D:\\project\\my-konwledge-base\\kb.py", "mcp"],
       "enabled": true
