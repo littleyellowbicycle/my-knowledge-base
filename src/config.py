@@ -27,7 +27,9 @@ class Settings:
 
     # ---- 路径 ----
     PROJECT_ROOT: Path = _PROJECT_ROOT
-    KB_ROOT: Path = _PROJECT_ROOT / os.getenv("KB_ROOT", "my_kb")
+    KB_ROOT: Path = Path(os.getenv("KB_ROOT", "my_kb"))
+    if not KB_ROOT.is_absolute():
+        KB_ROOT = _PROJECT_ROOT / KB_ROOT
 
     RAW_DIR: Path = KB_ROOT / "raw"
     PROCESSED_DIR: Path = KB_ROOT / "processed"
