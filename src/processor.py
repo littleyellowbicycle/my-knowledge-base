@@ -31,8 +31,10 @@ import frontmatter
 from src.config import settings
 from src.llm_adapter import llm, LLMError
 from src.raw_store import load_raw, mark_status, iter_pending
-from src.schemas import ProcessedNote, RawStatus
+from src.schemas import NoteType, ProcessedNote, RawStatus
 from src import relations as _relations  # 关联引擎钩子 (Step 3)
+
+from src.gateway.channels._shared import detect_raw_type
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +104,49 @@ def _assemble_markdown(note: ProcessedNote, raw_id: str,
         updated=today,
         tags=note.tags,
         status=NOTE_STATUS_PROCESSED,
+        note_type=note.note_type.value,
         related=note.related,
     )
     return frontmatter.dumps(post, sort_keys=False)
+
+
+def _make_stub_note(entry) -> ProcessedNote:
+    """抓取失败的原料 → 占位笔记 (不调 LLM)。"""
+    url = entry.source_url or "(未知来源)"
+    return ProcessedNote(
+        title=f"待补全 - {entry.id[-12:]}",
+        conclusion=f"原始来源未获取，待补全。来源: {url}",
+        body_markdown=(
+            f"⚠️ **待补全** — 原始内容抓取失败。\n\n"
+            f"## 状态\n\n本笔记为占位条目，无实质论点。\n\n"
+            f"## 来源\n\n{url}\n\n"
+            f"## 补全方式\n\n"
+            f"1. 检查 cookies 配置 (如需登录态)\n"
+            f"2. 重置原料状态为 pending 后重新加工"
+        ),
+        tags=["待补全", "抓取失败"],
+        related=[],
+        note_type=NoteType.STUB,
+    )
+
+
+def _make_index_note(entry) -> ProcessedNote:
+    """收藏夹索引页 → 索引笔记 (保留链接列表，不调 LLM)。"""
+    url = entry.source_url or ""
+    text = entry.original_text
+    link_count = sum(1 for line in text.split("\n") if "](" in line)
+    return ProcessedNote(
+        title=f"收藏夹索引 - {entry.id[-12:]}",
+        conclusion=f"收藏夹索引页，包含 {link_count} 篇文章链接。",
+        body_markdown=(
+            f"本笔记为收藏夹目录页，仅含链接列表。\n\n"
+            f"## 来源\n\n{url}\n\n"
+            f"## 文章列表\n\n{text}\n"
+        ),
+        tags=["索引页", "收藏夹"],
+        related=[],
+        note_type=NoteType.INDEX,
+    )
 
 
 def _body_with_sections(note: ProcessedNote) -> str:
@@ -144,15 +186,24 @@ def process_note(
             f"如需重新加工请先删除对应 processed 笔记并重置原料状态为 pending"
         )
 
-    prompt = _build_prompt(entry.original_text, entry.source_url)
-    logger.info("开始加工 %s (模型=%s)", raw_id, model or settings.MODEL_PROCESS)
-
-    note = llm.chat_json(
-        prompt,
-        schema=ProcessedNote,
-        system=_PROCESS_SYSTEM,
-        model=model or settings.MODEL_PROCESS,
-    )
+    # 检测原料类型，stub/index 不调 LLM
+    raw_type = detect_raw_type(entry.original_text)
+    if raw_type == "stub":
+        note = _make_stub_note(entry)
+        logger.info("加工 %s -> stub (跳过 LLM)", raw_id)
+    elif raw_type == "index":
+        note = _make_index_note(entry)
+        logger.info("加工 %s -> index (跳过 LLM)", raw_id)
+    else:
+        prompt = _build_prompt(entry.original_text, entry.source_url)
+        logger.info("开始加工 %s (模型=%s)", raw_id, model or settings.MODEL_PROCESS)
+        note = llm.chat_json(
+            prompt,
+            schema=ProcessedNote,
+            system=_PROCESS_SYSTEM,
+            model=model or settings.MODEL_PROCESS,
+        )
+        note.note_type = NoteType.CONTENT
 
     today = _dt.date.today().isoformat()
     content = _assemble_markdown(note, raw_id, entry.source_url, today)

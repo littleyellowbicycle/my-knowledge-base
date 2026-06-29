@@ -132,6 +132,8 @@ def cmd_list(args: argparse.Namespace) -> int:
     elif kind == "pending":
         for rid in raw_store.iter_pending():
             _emit(rid)
+    elif kind == "stubs":
+        _list_stubs()
     else:
         _emit(f"未知列表类型: {kind}", file=sys.stderr)
         return 2
@@ -159,6 +161,77 @@ def cmd_serve(args: argparse.Namespace) -> int:
     _emit(f"  POST {args.host}:{args.port}/qa                   (原生问答)")
     _emit("按 Ctrl+C 停止。")
     run_server(host=args.host, port=args.port)
+    return 0
+
+
+def _list_stubs() -> None:
+    """列出所有 stub/index 笔记。"""
+    import frontmatter as fm
+    stubs: list[str] = []
+    indexes: list[str] = []
+    for p in sorted(settings.PROCESSED_DIR.glob("*.md")):
+        try:
+            post = fm.loads(p.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        nt = str(post.metadata.get("note_type") or "content")
+        if nt == "stub":
+            stubs.append(p.name)
+        elif nt == "index":
+            indexes.append(p.name)
+    _emit(f"stub  ({len(stubs)} 篇):")
+    for n in stubs:
+        _emit(f"  - {n}")
+    _emit(f"index ({len(indexes)} 篇):")
+    for n in indexes:
+        _emit(f"  - {n}")
+
+
+def cmd_migrate(args: argparse.Namespace) -> int:
+    """存量数据迁移。"""
+    if args.task == "note-types":
+        return _migrate_note_types()
+    _emit(f"未知迁移任务: {args.task}", file=sys.stderr)
+    return 2
+
+
+def _migrate_note_types() -> int:
+    """回填 processed/*.md 的 frontmatter note_type 字段。"""
+    import frontmatter as fm
+    from src.gateway.channels._shared import detect_raw_type
+    from src.raw_store import load_raw
+
+    updated = 0
+    skipped = 0
+    for p in sorted(settings.PROCESSED_DIR.glob("*.md")):
+        try:
+            post = fm.loads(p.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            skipped += 1
+            continue
+        if post.metadata.get("note_type"):
+            skipped += 1
+            continue
+        # 从 frontmatter.source 找对应 raw
+        raw_id = post.metadata.get("source")
+        detected = "normal"
+        if raw_id:
+            try:
+                entry = load_raw(raw_id)
+                detected = detect_raw_type(entry.original_text)
+            except Exception:  # noqa: BLE001
+                pass
+        # 正文启发式: 含"待补全/抓取失败"→ stub
+        if detected == "normal":
+            body = post.content
+            if any(kw in body for kw in ("待补全", "抓取失败", "需要登录态", "HTTP 403")):
+                detected = "stub"
+        note_type = {"stub": "stub", "index": "index"}.get(detected, "content")
+        post.metadata["note_type"] = note_type
+        p.write_text(fm.dumps(post, sort_keys=False), encoding="utf-8")
+        updated += 1
+        _emit(f"  {p.name} -> {note_type}")
+    _emit(f"\n回填完成: {updated} 篇更新, {skipped} 篇跳过")
     return 0
 
 
@@ -229,8 +302,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     # list
     p = sub.add_parser("list", help="列出条目")
-    p.add_argument("kind", choices=["raw", "processed", "wiki", "pending"],
-                   help="列表类型")
+    p.add_argument("kind", choices=["raw", "processed", "wiki", "pending", "stubs"],
+                   help="列表类型 (stubs = 占位/索引笔记)")
     p.set_defaults(func=cmd_list)
 
     # stats
@@ -247,6 +320,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("workflow", help="一键管线: 录入(可选) → 加工 → 索引 → Wiki")
     p.add_argument("-u", "--url", help="可选，先录入 URL 再跑管线")
     p.set_defaults(func=cmd_workflow)
+
+    # migrate
+    p = sub.add_parser("migrate", help="存量数据迁移")
+    p.add_argument("task", choices=["note-types"],
+                   help="note-types: 回填 frontmatter note_type 字段")
+    p.set_defaults(func=cmd_migrate)
 
     # mcp
     p = sub.add_parser("mcp", help="启动 MCP 服务 (stdio，供 AI Agent 调用)")

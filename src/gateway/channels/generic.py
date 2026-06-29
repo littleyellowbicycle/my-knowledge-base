@@ -8,7 +8,9 @@ import requests
 from src.gateway.channels._shared import (
     _REQUEST_TIMEOUT,
     crawl4ai_fetch,
+    detect_raw_type,
     html_to_markdown,
+    mark_raw_type,
 )
 
 logger = logging.getLogger(__name__)
@@ -23,10 +25,11 @@ class GenericChannel:
 
     def fetch(self, url: str, cookies: dict | None = None) -> str:
         try:
-            return crawl4ai_fetch(url, cookies=cookies)
+            text = crawl4ai_fetch(url, cookies=cookies)
         except Exception as e:  # noqa: BLE001
             logger.warning("Crawl4AI 抓取失败，回退 requests: %s", e)
-            return self._fetch_requests(url, cookies)
+            text = self._fetch_requests(url, cookies)
+        return mark_raw_type(text, detect_raw_type(text))
 
     def fetch_items(self, url: str, cookies: dict | None = None) -> list[dict] | None:
         return None  # 通用不支持展开

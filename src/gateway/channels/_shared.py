@@ -12,6 +12,63 @@ logger = logging.getLogger(__name__)
 
 _REQUEST_TIMEOUT = 60
 
+# ---------- 原料类型检测 ----------
+STUB_MARKERS = (
+    "<!-- 抓取失败",
+    "需要登录态",
+    "HTTP 403",
+    "HTTP 401",
+    "未获取",
+)
+
+# raw_type 标记行，由 detect_raw_type() 生成、processor 消费
+_RAW_TYPE_PREFIX = "<!-- raw_type:"
+
+
+def detect_raw_type(raw_text: str) -> str:
+    """检测原料文本类型，返回 'stub' | 'index' | 'normal'。
+
+    优先检测已有的 raw_type 标记行（由 channel 插入），
+    其次用启发式规则判断。
+    """
+    if not raw_text:
+        return "stub"
+
+    # 1. 已有显式标记
+    m = re.search(
+        r"<!--\s*raw_type:\s*(stub|index|normal)\s*-->",
+        raw_text,
+    )
+    if m:
+        return m.group(1)
+
+    # 2. 抓取失败标记
+    for marker in STUB_MARKERS:
+        if marker in raw_text[:500]:
+            return "stub"
+
+    # 3. 收藏夹索引页: 链接密度高且无实质段落
+    lines = [l for l in raw_text.split("\n") if l.strip()]
+    if lines:
+        link_lines = sum(
+            1 for l in lines if "](" in l or l.lstrip().startswith("http")
+        )
+        if link_lines > len(lines) * 0.6 and len(raw_text) < 3000:
+            return "index"
+
+    return "normal"
+
+
+def mark_raw_type(raw_text: str, raw_type: str) -> str:
+    """在 raw_text 头部插入 raw_type 标记（如已存在则替换）。"""
+    tag = f"<!-- raw_type: {raw_type} -->\n"
+    cleaned = re.sub(
+        r"<!--\s*raw_type:\s*\w+\s*-->\s*\n?",
+        "",
+        raw_text,
+    )
+    return tag + cleaned
+
 
 def load_cookies(channel_name: str | None = None, explicit: dict | None = None) -> dict:
     """多级 cookie 优先级加载。

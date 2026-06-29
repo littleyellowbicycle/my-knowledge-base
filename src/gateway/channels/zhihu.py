@@ -21,8 +21,10 @@ import requests
 from src.gateway.channels._shared import (
     _REQUEST_TIMEOUT,
     crawl4ai_fetch,
+    detect_raw_type,
     html_to_markdown,
     load_cookies,
+    mark_raw_type,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,13 +63,15 @@ class ZhihuChannel:
     def fetch(self, url: str, cookies: dict | None = None) -> str:
         ck = load_cookies("zhihu", cookies)
         if "/collection/" in url:
-            return self._fetch_collection_index(url, ck)
+            return mark_raw_type(self._fetch_collection_index(url, ck), "index")
         if "/answer/" in url:
-            return self._fetch_answer(url, ck)
-        if "zhuanlan" in url or "/p/" in url:
-            return self._fetch_article(url, ck)
-        from src.gateway.channels.generic import GenericChannel
-        return GenericChannel().fetch(url, cookies=ck)
+            text = self._fetch_answer(url, ck)
+        elif "zhuanlan" in url or "/p/" in url:
+            text = self._fetch_article(url, ck)
+        else:
+            from src.gateway.channels.generic import GenericChannel
+            text = GenericChannel().fetch(url, cookies=ck)
+        return mark_raw_type(text, detect_raw_type(text))
 
     def fetch_items(self, url: str, cookies: dict | None = None) -> list[dict] | None:
         if not re.search(r"zhihu\.com/collection/\d+", url):

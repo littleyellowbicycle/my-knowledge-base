@@ -30,6 +30,13 @@ class RawStatus(str, Enum):
     INDEXED = "indexed"
 
 
+class NoteType(str, Enum):
+    """笔记类型: 区分实质内容与占位/索引。"""
+    CONTENT = "content"   # 内容型: 含实质论点
+    INDEX = "index"       # 索引型: 仅链接列表/目录页
+    STUB = "stub"         # 占位型: 抓取失败/待补全
+
+
 class RawEntry(BaseModel):
     """归一化后的原料条目，对应 architecture.md 中的 RawEntry。"""
 
@@ -59,6 +66,9 @@ class ProcessedNote(BaseModel):
     tags: list[str] = Field(default_factory=list, description="标签列表")
     related: list[str] = Field(
         default_factory=list, description="相关笔记标题 (由关联引擎填充，LLM 留空即可)"
+    )
+    note_type: NoteType = Field(
+        NoteType.CONTENT, description="笔记类型: content/index/stub"
     )
 
 

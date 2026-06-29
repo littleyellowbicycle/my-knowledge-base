@@ -89,6 +89,8 @@ def _parse_note(path: Path, note_type: str = "note") -> dict[str, Any] | None:
             seen.add(target)
             links.append(target)
 
+    note_type_field = str(post.metadata.get("note_type") or "content")
+
     return {
         "filename": path.name,
         "stem": path.stem,
@@ -99,6 +101,7 @@ def _parse_note(path: Path, note_type: str = "note") -> dict[str, Any] | None:
         "source": source,
         "updated": updated,
         "type": note_type,
+        "note_type": note_type_field,
         "topic": topic,
     }
 
@@ -114,6 +117,7 @@ def _build_summaries(parsed: list[dict]) -> dict[str, dict]:
             "source": p["source"],
             "updated": p["updated"],
             "type": p.get("type", "note"),
+            "note_type": p.get("note_type", "content"),
             "topic": p.get("topic"),
         }
         for p in parsed

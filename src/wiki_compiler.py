@@ -70,21 +70,31 @@ def _wiki_stems() -> set[str]:
     return {Path(f).stem for f, s in summaries.items() if s.get("type") == "wiki"}
 
 
+def _excluded_stems() -> set[str]:
+    """返回不应参与 Wiki 编译的 stem 集合 (stub/index 笔记 + 已有 wiki)。"""
+    excluded = _wiki_stems()
+    summaries = load_summaries()
+    for fname, s in summaries.items():
+        if s.get("note_type") in ("stub", "index"):
+            excluded.add(Path(fname).stem)
+    return excluded
+
+
 def find_clusters(min_size: Optional[int] = None) -> list[list[str]]:
     """找出所有连通分量，返回节点数 >= min_size 的簇 (stem 列表)。
 
-    簇检测仅基于加工层笔记，排除 wiki 综述节点，避免重复编译。
+    簇检测仅基于加工层 content 笔记，排除 wiki 综述节点和 stub/index 笔记。
     """
     min_size = settings.WIKI_CLUSTER_MIN_NOTES if min_size is None else min_size
     links = load_links()
     if not links:
         return []
-    wiki_stems = _wiki_stems()
+    excluded = _excluded_stems()
     g = _build_graph(links)
     visited: set[str] = set()
     clusters: list[list[str]] = []
     for start in links.keys():
-        if start in wiki_stems or start in visited:
+        if start in excluded or start in visited:
             continue
         # BFS
         comp: list[str] = []
@@ -94,7 +104,7 @@ def find_clusters(min_size: Optional[int] = None) -> list[list[str]]:
             node = q.popleft()
             comp.append(node)
             for nxt in g.get(node, set()):
-                if nxt in wiki_stems or nxt in visited:
+                if nxt in excluded or nxt in visited:
                     continue
                 visited.add(nxt)
                 q.append(nxt)
@@ -142,6 +152,7 @@ def _read_note_full(stem: str) -> dict:
         "tags": list(post.metadata.get("tags") or []),
         "conclusion": conclusion,
         "body": body_clean.strip(),
+        "note_type": str(post.metadata.get("note_type") or "content"),
     }
 
 
@@ -311,9 +322,11 @@ def compile_wiki(
         topic = _name_cluster(stems)
 
     notes = [_read_note_full(s) for s in stems]
-    notes = [n for n in notes if n["body"]]
+    notes = [n for n in notes
+             if n["body"] and n.get("note_type", "content") == "content"]
     if len(notes) < settings.WIKI_CLUSTER_MIN_NOTES:
-        logger.info("有效笔记不足，跳过")
+        logger.info("有效内容笔记不足 (%d 篇 stub/index 已过滤)，跳过",
+                    len(stems) - len(notes))
         return None
 
     logger.info("开始编译 Wiki: %s (stem=%d, llmwiki=%s)",
